@@ -35,6 +35,23 @@ func isValidCommand(command Command) bool {
 	return false
 }
 
+// Directories are splites by :
+func findFile(directories string, file string) (bool, string) {
+	directoriesSplit := strings.Split(directories, ":")
+
+	for _, item := range directoriesSplit {
+		path := item + "/" + file
+		info, err := os.Stat(path)
+
+		if err == nil && !info.IsDir() && info.Mode().Perm()&0100 != 0 {
+			return true, path
+		}
+
+	}
+	return false, ""
+
+}
+
 func (shell Shell) handleEchoCommand(args []string) error {
 	fmt.Fprintln(shell.out, strings.Join(args, " "))
 	return nil
@@ -46,8 +63,9 @@ func (shell Shell) handleTypeCommand(args []string) error {
 	}
 
 	if isValidCommand(Command(args[0])) {
-
 		fmt.Fprintln(shell.out, args[0]+" is a shell builtin")
+	} else if ok, path := findFile(os.Getenv("PATH"), args[0]); ok {
+		fmt.Fprintln(shell.out, args[0]+" is "+path)
 	} else {
 		fmt.Fprintln(shell.out, args[0]+": not found")
 	}

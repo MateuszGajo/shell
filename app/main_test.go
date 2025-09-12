@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -90,16 +93,38 @@ type Case struct {
 	input  string
 	output string
 	name   string
+	setup  func() string
+	clear  func()
 }
 
 func TestTypeCommand(t *testing.T) {
 	cases := []Case{
 		{input: "type echo", output: "echo is a shell builtin", name: "valid command type echo"},
 		{input: "type abc", output: "abc: not found", name: "invalid command type abc"},
+		{input: "type script", output: "script is /tmp/123/test2/script", name: "valid not builtin command",
+			setup: func() string {
+				os.Mkdir("/tmp/123", 0755)
+				dir := "/tmp/123"
+				fmt.Println(dir)
+				os.Setenv("PATH", dir+"/test1"+":"+dir+"/test2")
+				os.Mkdir(dir+"/test1", 0755)
+				os.Mkdir(dir+"/test2", 0755)
+				os.WriteFile(filepath.Join(dir+"/test1", "script"), []byte("fsdfs"), 0644)
+				os.WriteFile(filepath.Join(dir+"/test2", "script"), []byte("fsdfs"), 0755)
+
+				return dir
+			},
+			clear: func() {
+				os.RemoveAll("/tmp/123")
+			},
+		},
 	}
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
+			if testCase.setup != nil {
+				testCase.setup()
+			}
 			input := strings.NewReader(testCase.input + "\n")
 
 			var output bytes.Buffer
@@ -113,6 +138,10 @@ func TestTypeCommand(t *testing.T) {
 
 			if got != testCase.output {
 				t.Errorf("Expected result to be %q, got: %q", testCase.output, got)
+			}
+
+			if testCase.clear != nil {
+				testCase.clear()
 			}
 		})
 	}
