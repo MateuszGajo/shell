@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 )
@@ -42,7 +43,6 @@ func findFile(directories string, file string) (bool, string) {
 	for _, item := range directoriesSplit {
 		path := item + "/" + file
 		info, err := os.Stat(path)
-
 		if err == nil && !info.IsDir() && info.Mode().Perm()&0100 != 0 {
 			return true, path
 		}
@@ -58,6 +58,7 @@ func (shell Shell) handleEchoCommand(args []string) error {
 }
 
 func (shell Shell) handleTypeCommand(args []string) error {
+
 	if len(args) > 1 {
 		return fmt.Errorf("expected only one argument")
 	}
@@ -73,20 +74,38 @@ func (shell Shell) handleTypeCommand(args []string) error {
 	return nil
 }
 
-func (shell Shell) handleCommand(command Command, args []string) error {
-	var err error
-	switch command {
-	case EchoCommand:
-		err = shell.handleEchoCommand(args)
-	case TypeCommand:
-		err = shell.handleTypeCommand(args)
-	default:
-		err = fmt.Errorf("Command handler not defined for: %v", command)
+func (shell Shell) handleExternalCommand(command Command, args []string) error {
+	ok, _ := findFile(os.Getenv("PATH"), string(command))
+
+	if !ok {
+		return fmt.Errorf("couldn't find file")
 	}
 
-	if err != nil {
-		return fmt.Errorf("Command: %v, err:%v", command, err)
+	cmd := exec.Command(string(command), args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintln(shell.out, err)
 	}
+
+	return nil
+}
+
+func (shell Shell) handleCommand(command Command, args []string) error {
+
+	switch command {
+	case EchoCommand:
+		return shell.handleEchoCommand(args)
+	case TypeCommand:
+		return shell.handleTypeCommand(args)
+	default:
+		err := shell.handleExternalCommand(command, args)
+		if err != nil {
+			fmt.Fprintln(shell.out, command+": command not found")
+		}
+	}
+
 	return nil
 }
 
@@ -103,11 +122,6 @@ func (shell Shell) startCli() (bool, int) {
 		}
 		split := strings.Split(text[:len(text)-1], " ")
 		command := Command(split[0])
-
-		if !isValidCommand(command) {
-			fmt.Fprintln(shell.out, command+": command not found")
-			continue
-		}
 
 		if command == ExitCommand {
 			code := 0
