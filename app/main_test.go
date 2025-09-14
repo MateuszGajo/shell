@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -146,4 +148,75 @@ func TestTypeCommand(t *testing.T) {
 		})
 	}
 
+}
+
+func TestPwdCommand(t *testing.T) {
+
+	input := strings.NewReader("pwd\n")
+
+	var output bytes.Buffer
+	path, _ := os.Getwd()
+	shell := Shell{
+		in:        input,
+		out:       &output,
+		directory: path,
+	}
+
+	shell.startCli()
+	got := getRawOutput(output.String())
+	expectedResult := path
+
+	if got != expectedResult {
+		t.Errorf("Expected result to be %q, got: %q", expectedResult, got)
+	}
+}
+
+func TestStartCli(t *testing.T) {
+	directory, _ := os.Getwd()
+
+	os.Mkdir("tmp", 0755)
+	os.Mkdir("tmp/123", 0755)
+
+	cmd := exec.Command("/usr/bin/go", "run", "main.go")
+	var stdout, stderr bytes.Buffer
+
+	stdin, _ := cmd.StdinPipe()
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		panic(err)
+	}
+
+	io.WriteString(stdin, "cd tmp/123\n")
+	io.WriteString(stdin, "pwd\n")
+	io.WriteString(stdin, "exit 0\n")
+
+	stdin.Close()
+
+	cmd.Wait()
+	fmt.Println("stdout:", stdout.String())
+
+	if !strings.Contains(stdout.String(), directory+"/tmp/123") {
+		t.Errorf("expected to print directory %v", directory+"/tmp/123")
+	}
+	os.RemoveAll("tmp")
+}
+
+func TestParseArgs(t *testing.T) {
+	args := "echo 'aa bb'"
+
+	ret := parseArguments(args)
+
+	if ret[0] != "echo" || ret[1] != "aa bb" {
+		t.Errorf("expected to parse it as two argument echo and 'aa bb', got: %v", ret)
+	}
+
+	args = "echo hello   world"
+
+	ret = parseArguments(args)
+
+	if ret[0] != "echo" || ret[1] != "hello" || ret[2] != "world" {
+		t.Errorf("expected to parse it as two argument echo hello world, got: %v", ret)
+	}
 }

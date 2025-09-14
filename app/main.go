@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -15,20 +14,22 @@ type Command string
 
 const (
 	EchoCommand Command = "echo"
-	CDCommand   Command = "cd"
 	ExitCommand Command = "exit"
 	TypeCommand Command = "type"
+	PwdCommand  Command = "pwd"
+	CdCommand   Command = "cd"
 )
 
-var allowedCommands = []Command{EchoCommand, CDCommand, ExitCommand, TypeCommand}
+var builtinCommands = []Command{EchoCommand, ExitCommand, TypeCommand, PwdCommand, CdCommand}
 
 type Shell struct {
-	in  io.Reader
-	out io.Writer
+	in        io.Reader
+	out       io.Writer
+	directory string
 }
 
-func isValidCommand(command Command) bool {
-	for _, item := range allowedCommands {
+func isBuiltinCommand(command Command) bool {
+	for _, item := range builtinCommands {
 		if item == command {
 			return true
 		}
@@ -63,7 +64,7 @@ func (shell Shell) handleTypeCommand(args []string) error {
 		return fmt.Errorf("expected only one argument")
 	}
 
-	if isValidCommand(Command(args[0])) {
+	if isBuiltinCommand(Command(args[0])) {
 		fmt.Fprintln(shell.out, args[0]+" is a shell builtin")
 	} else if ok, path := findFile(os.Getenv("PATH"), args[0]); ok {
 		fmt.Fprintln(shell.out, args[0]+" is "+path)
@@ -92,13 +93,57 @@ func (shell Shell) handleExternalCommand(command Command, args []string) error {
 	return nil
 }
 
-func (shell Shell) handleCommand(command Command, args []string) error {
+func (shell Shell) handlePwdCommand() error {
+	fmt.Fprintln(shell.out, shell.directory)
+	return nil
+}
+
+func (shell *Shell) handleCdCommand(args []string) error {
+	if len(args) > 1 {
+		return fmt.Errorf("expecting only 1 argument")
+	} else if len(args) == 0 {
+		return fmt.Errorf("missing argument")
+	}
+
+	goToPath := args[0]
+
+	if goToPath == "~" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintln(shell.out, "cd: error getting home directory")
+		}
+		err = os.Chdir(home)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cd: %v\n", err)
+		}
+	} else {
+		err := os.Chdir(goToPath)
+
+		if err != nil {
+			fmt.Fprintln(shell.out, "cd: "+goToPath+": No such file or directory")
+		}
+	}
+
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	shell.directory = currentDir
+
+	return nil
+}
+
+func (shell *Shell) handleCommand(command Command, args []string) error {
 
 	switch command {
 	case EchoCommand:
 		return shell.handleEchoCommand(args)
 	case TypeCommand:
 		return shell.handleTypeCommand(args)
+	case PwdCommand:
+		return shell.handlePwdCommand()
+	case CdCommand:
+		return shell.handleCdCommand(args)
 	default:
 		err := shell.handleExternalCommand(command, args)
 		if err != nil {
@@ -109,18 +154,48 @@ func (shell Shell) handleCommand(command Command, args []string) error {
 	return nil
 }
 
-func (shell Shell) startCli() (bool, int) {
+func parseArguments(args string) []string {
+	argsArr := []string{}
+	current := ""
+	isSingle := false
+	for i := 0; i < len(args); i++ {
+		if args[i] == '\'' {
+			isSingle = !isSingle
+		} else if args[i] == ' ' && !isSingle {
+			if current != "" {
+				argsArr = append(argsArr, current)
+				current = ""
+
+			}
+		} else {
+			current += string(args[i])
+		}
+
+	}
+
+	if current != "" {
+		argsArr = append(argsArr, current)
+	}
+	for i, s := range argsArr {
+		argsArr[i] = strings.ReplaceAll(s, "'", "")
+	}
+
+	return argsArr
+
+}
+
+func (shell *Shell) startCli() (bool, int) {
+	scanner := bufio.NewScanner(shell.in)
 	for {
 		fmt.Fprint(shell.out, "$ ")
 
-		text, err := bufio.NewReader(shell.in).ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				return false, 0
-			}
-			log.Fatal("Problem reading command", err)
+		ok := scanner.Scan()
+		if !ok {
+			return false, 0
 		}
-		split := strings.Split(text[:len(text)-1], " ")
+		text := scanner.Text()
+
+		split := parseArguments(text)
 		command := Command(split[0])
 
 		if command == ExitCommand {
@@ -139,7 +214,7 @@ func (shell Shell) startCli() (bool, int) {
 			return true, code
 		}
 
-		err = shell.handleCommand(command, split[1:])
+		err := shell.handleCommand(command, split[1:])
 
 		if err != nil {
 			fmt.Printf("handle command err %v", err)
@@ -150,9 +225,16 @@ func (shell Shell) startCli() (bool, int) {
 }
 
 func main() {
+	directory, err := os.Getwd()
+
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 	shell := Shell{
-		in:  os.Stdin,
-		out: os.Stdout,
+		in:        os.Stdin,
+		out:       os.Stdout,
+		directory: directory,
 	}
 	exitRequest, exitCode := shell.startCli()
 
