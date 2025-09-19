@@ -154,35 +154,35 @@ func (shell *Shell) handleCommand(command Command, args []string) error {
 	return nil
 }
 
-func parseArguments(args string) []string {
-	argsArr := []string{}
-	current := ""
-	isSingle := false
-	for i := 0; i < len(args); i++ {
-		if args[i] == '\'' {
-			isSingle = !isSingle
-		} else if args[i] == ' ' && !isSingle {
-			if current != "" {
-				argsArr = append(argsArr, current)
-				current = ""
+// func parseArguments(args string) []string {
+// 	argsArr := []string{}
+// 	current := ""
+// 	isSingle := false
+// 	for i := 0; i < len(args); i++ {
+// 		if args[i] == '\'' {
+// 			isSingle = !isSingle
+// 		} else if args[i] == ' ' && !isSingle {
+// 			if current != "" {
+// 				argsArr = append(argsArr, current)
+// 				current = ""
 
-			}
-		} else {
-			current += string(args[i])
-		}
+// 			}
+// 		} else {
+// 			current += string(args[i])
+// 		}
 
-	}
+// 	}
 
-	if current != "" {
-		argsArr = append(argsArr, current)
-	}
-	for i, s := range argsArr {
-		argsArr[i] = strings.ReplaceAll(s, "'", "")
-	}
+// 	if current != "" {
+// 		argsArr = append(argsArr, current)
+// 	}
+// 	for i, s := range argsArr {
+// 		argsArr[i] = strings.ReplaceAll(s, "'", "")
+// 	}
 
-	return argsArr
+// 	return argsArr
 
-}
+// }
 
 func (shell *Shell) startCli() (bool, int) {
 	scanner := bufio.NewScanner(shell.in)
@@ -195,14 +195,19 @@ func (shell *Shell) startCli() (bool, int) {
 		}
 		text := scanner.Text()
 
-		split := parseArguments(text)
-		command := Command(split[0])
+		parser := NewParser(text)
+		input, err := parser.ParseCommand()
+		if err != nil {
+			fmt.Println(err)
+			return true, 1
+		}
+		command := Command(input.Command)
 
 		if command == ExitCommand {
 			code := 0
 
-			if len(split) > 0 {
-				n, err := strconv.Atoi(split[1])
+			if len(input.Arguments) > 0 {
+				n, err := strconv.Atoi(input.Arguments[0])
 				if err == nil {
 					code = n
 				} else {
@@ -214,7 +219,7 @@ func (shell *Shell) startCli() (bool, int) {
 			return true, code
 		}
 
-		err := shell.handleCommand(command, split[1:])
+		err = shell.handleCommand(input.Command, input.Arguments)
 
 		if err != nil {
 			fmt.Printf("handle command err %v", err)
