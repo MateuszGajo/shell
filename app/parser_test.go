@@ -22,12 +22,12 @@ func TestParser(t *testing.T) {
 		{
 			input:         "echo hello   world",
 			outputCommand: "echo",
-			outputArgs:    []string{"hello", "world"},
+			outputArgs:    []string{"hello", " ", "world"},
 		},
 		{
 			input:         "echo 'example     world' 'hello''script' test''shell",
 			outputCommand: "echo",
-			outputArgs:    []string{"example     world", "helloscript", "testshell"},
+			outputArgs:    []string{"example     world", " ", "hello", "script", " ", "test", "", "shell"},
 		},
 	}
 

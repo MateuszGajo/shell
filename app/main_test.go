@@ -191,4 +191,29 @@ func TestChangeDirectory(t *testing.T) {
 	if !strings.Contains(got, expectedResult) {
 		t.Errorf("expected to print directory %v, got: %v", expectedResult, got)
 	}
+
+	os.RemoveAll("tmp")
+}
+
+func TestEnscape(t *testing.T) {
+
+	input := strings.NewReader("echo example\\ \\ \\ \\ \\ \\ hello\n")
+
+	var output bytes.Buffer
+	path, _ := os.Getwd()
+	shell := Shell{
+		in:        input,
+		out:       &output,
+		directory: path,
+	}
+
+	shell.startCli()
+	got := getRawOutput(output.String())
+	expectedResult := "example      hello"
+
+	if !strings.Contains(got, expectedResult) {
+		t.Errorf("expected to be %v, got: %v", expectedResult, got)
+	}
+
+	os.RemoveAll("tmp")
 }

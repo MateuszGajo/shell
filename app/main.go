@@ -37,7 +37,6 @@ func isBuiltinCommand(command Command) bool {
 	return false
 }
 
-// Directories are splites by :
 func findFile(directories string, file string) (bool, string) {
 	directoriesSplit := strings.Split(directories, ":")
 
@@ -54,7 +53,7 @@ func findFile(directories string, file string) (bool, string) {
 }
 
 func (shell Shell) handleEchoCommand(args []string) error {
-	fmt.Fprintln(shell.out, strings.Join(args, " "))
+	fmt.Fprintln(shell.out, strings.Join(args, ""))
 	return nil
 }
 
@@ -79,7 +78,8 @@ func (shell Shell) handleExternalCommand(command Command, args []string) error {
 	ok, _ := findFile(os.Getenv("PATH"), string(command))
 
 	if !ok {
-		return fmt.Errorf("couldn't find file")
+		fmt.Fprintln(shell.out, command+": command not found")
+		return nil
 	}
 
 	cmd := exec.Command(string(command), args...)
@@ -93,7 +93,7 @@ func (shell Shell) handleExternalCommand(command Command, args []string) error {
 	return nil
 }
 
-func (shell Shell) handlePwdCommand() error {
+func (shell Shell) handlePwdCommand(args []string) error {
 	fmt.Fprintln(shell.out, shell.directory)
 	return nil
 }
@@ -133,56 +133,41 @@ func (shell *Shell) handleCdCommand(args []string) error {
 	return nil
 }
 
-func (shell *Shell) handleCommand(command Command, args []string) error {
-
-	switch command {
-	case EchoCommand:
-		return shell.handleEchoCommand(args)
-	case TypeCommand:
-		return shell.handleTypeCommand(args)
-	case PwdCommand:
-		return shell.handlePwdCommand()
-	case CdCommand:
-		return shell.handleCdCommand(args)
-	default:
-		err := shell.handleExternalCommand(command, args)
-		if err != nil {
-			fmt.Fprintln(shell.out, command+": command not found")
+func filterParams(args []string) []string {
+	newArgs := []string{}
+	for _, item := range args {
+		if item != " " {
+			newArgs = append(newArgs, item)
 		}
 	}
 
-	return nil
+	return newArgs
 }
 
-// func parseArguments(args string) []string {
-// 	argsArr := []string{}
-// 	current := ""
-// 	isSingle := false
-// 	for i := 0; i < len(args); i++ {
-// 		if args[i] == '\'' {
-// 			isSingle = !isSingle
-// 		} else if args[i] == ' ' && !isSingle {
-// 			if current != "" {
-// 				argsArr = append(argsArr, current)
-// 				current = ""
+type CommandSpec struct {
+	Name         Command
+	NeedsRawArgs bool
+	Handler      func(shell *Shell, args []string) error
+}
 
-// 			}
-// 		} else {
-// 			current += string(args[i])
-// 		}
+var commands = map[Command]CommandSpec{
+	EchoCommand: {EchoCommand, true, (*Shell).handleEchoCommand},
+	TypeCommand: {TypeCommand, false, (*Shell).handleTypeCommand},
+	PwdCommand:  {PwdCommand, false, (*Shell).handlePwdCommand},
+	CdCommand:   {CdCommand, false, (*Shell).handleCdCommand},
+}
 
-// 	}
+func (shell *Shell) handleCommand(command Command, rawArgs []string) error {
+	if spec, ok := commands[command]; ok {
+		if spec.NeedsRawArgs {
+			return spec.Handler(shell, rawArgs)
+		}
+		return spec.Handler(shell, filterParams(rawArgs))
+	}
 
-// 	if current != "" {
-// 		argsArr = append(argsArr, current)
-// 	}
-// 	for i, s := range argsArr {
-// 		argsArr[i] = strings.ReplaceAll(s, "'", "")
-// 	}
+	return shell.handleExternalCommand(command, filterParams(rawArgs))
 
-// 	return argsArr
-
-// }
+}
 
 func (shell *Shell) startCli() (bool, int) {
 	scanner := bufio.NewScanner(shell.in)
@@ -233,7 +218,7 @@ func main() {
 	directory, err := os.Getwd()
 
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("get directory err", err)
 		os.Exit(1)
 	}
 	shell := Shell{
