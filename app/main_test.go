@@ -195,7 +195,7 @@ func TestChangeDirectory(t *testing.T) {
 	os.RemoveAll("tmp")
 }
 
-func TestEnscape(t *testing.T) {
+func TestEscape(t *testing.T) {
 
 	input := strings.NewReader("echo example\\ \\ \\ \\ \\ \\ hello\n")
 
@@ -210,6 +210,52 @@ func TestEnscape(t *testing.T) {
 	shell.startCli()
 	got := getRawOutput(output.String())
 	expectedResult := "example      hello"
+
+	if !strings.Contains(got, expectedResult) {
+		t.Errorf("expected to be %v, got: %v", expectedResult, got)
+	}
+
+	os.RemoveAll("tmp")
+}
+
+func TestSingleQuoteWithEscape(t *testing.T) {
+
+	input := strings.NewReader("echo 'example\"helloshell\"test'")
+
+	var output bytes.Buffer
+	path, _ := os.Getwd()
+	shell := Shell{
+		in:        input,
+		out:       &output,
+		directory: path,
+	}
+
+	shell.startCli()
+	got := getRawOutput(output.String())
+	expectedResult := "example\"helloshell\"test"
+
+	if !strings.Contains(got, expectedResult) {
+		t.Errorf("expected to be %v, got: %v", expectedResult, got)
+	}
+
+	os.RemoveAll("tmp")
+}
+
+func TestBackslashWithinDoubleQuotes(t *testing.T) {
+
+	input := strings.NewReader("echo \"hello'test'\\\\'script\"")
+
+	var output bytes.Buffer
+	path, _ := os.Getwd()
+	shell := Shell{
+		in:        input,
+		out:       &output,
+		directory: path,
+	}
+
+	shell.startCli()
+	got := getRawOutput(output.String())
+	expectedResult := "hello'test'\\'script"
 
 	if !strings.Contains(got, expectedResult) {
 		t.Errorf("expected to be %v, got: %v", expectedResult, got)

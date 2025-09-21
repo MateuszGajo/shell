@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // Lets use recusrive descent parser
 
@@ -65,33 +68,32 @@ func (p *Lexar) nextToken() Token {
 	case ' ':
 		p.readAllSpace()
 		token = NewToken(SPACE, " ")
+	case '\\':
+		b := p.readEscapedByte()
+		token = NewToken(STRING, string(b))
+	case '\'':
+		result := p.readSingleQuote()
+		p.next()
+		token = NewToken(STRING, result)
+	case '"':
+		result := p.readDoubleQuote()
+		p.next()
+		token = NewToken(STRING, result)
 	case 0:
 		token = NewToken(EOF, "")
 	default:
-		content := p.readConcatenatedString()
-		token = NewToken(STRING, content)
+		result := p.readLiteral()
+		token = NewToken(STRING, result)
 	}
 
 	return token
 }
 
-func (p *Lexar) readConcatenatedString() string {
-	var result string
+func (l *Lexar) readEscapedByte() byte {
+	ret := l.next()
+	l.next()
 
-	for !p.eof() && p.peek() != ' ' && p.peek() != 0 {
-		switch p.peek() {
-		case '\'':
-			result += p.readSingleQuote()
-			p.next()
-		case '"':
-			result += p.readDoubleQuote()
-			p.next()
-		default:
-			result += p.readLiteral()
-		}
-	}
-
-	return result
+	return ret
 }
 
 func (l *Lexar) readAllSpace() {
@@ -124,17 +126,30 @@ func (p *Lexar) readSingleQuote() string {
 	return p.input[start:p.i]
 }
 
+var doubleQuoteEscapables = []byte{'"', '\\', '$', '`', '\n'}
+
 func (p *Lexar) readDoubleQuote() string {
 	char := p.next()
-	start := p.i
+	res := ""
 	for {
 		if char == '"' || char == 0 {
 			break
 		}
+		if char == '\\' {
+			currentChar := char
+			char = p.next()
+
+			if !slices.Contains(doubleQuoteEscapables, char) {
+				res += string(currentChar)
+			}
+		}
+
+		res += string(char)
 		char = p.next()
 
 	}
-	return p.input[start:p.i]
+	// res += string(char)
+	return res
 }
 
 type Parser struct {
@@ -157,12 +172,8 @@ func NewParser(input string) Parser {
 func (p *Parser) nextToken() {
 	p.currentToken = p.peekToken
 
-	for {
-		p.peekToken = p.lexar.nextToken()
-		if p.peekToken.tokenType != SPACE {
-			break
-		}
-	}
+	p.peekToken = p.lexar.nextToken()
+
 }
 
 type ParsedInput struct {
@@ -174,13 +185,15 @@ func (p *Parser) ParseCommand() (ParsedInput, error) {
 	//Grammar rule command -> String argument_list
 
 	if p.currentToken.tokenType != STRING {
-		return ParsedInput{}, fmt.Errorf("Expect command, got: %s", p.currentToken.tokenType)
+		return ParsedInput{}, fmt.Errorf("expect command, got: %s", p.currentToken.tokenType)
 	}
 
 	command := ParsedInput{
 		Command:   Command(p.currentToken.literal),
 		Arguments: []string{},
 	}
+
+	p.nextToken()
 
 	p.nextToken()
 
@@ -195,7 +208,7 @@ func (p *Parser) ParseArgumentList() []string {
 
 	var args []string
 
-	if p.currentToken.tokenType != STRING {
+	if p.currentToken.tokenType == EOF {
 		return args
 	}
 
@@ -208,33 +221,3 @@ func (p *Parser) ParseArgumentList() []string {
 
 	return args
 }
-
-// func (p Parser) parseInput() []string {
-// 	result := []string{}
-
-// 	parser := newLexar(p.input)
-// 	tokens := []Token{}
-
-// 	token := parser.nextToken()
-// 	for token.tokenType != EOF {
-// 		tokens = append(tokens, token)
-// 		token = parser.nextToken()
-// 	}
-
-// 	literal := ""
-// 	for _, token := range tokens {
-// 		if token.tokenType == STRING {
-// 			literal += token.literal
-// 			// result = append(result, token.literal)
-// 		} else if token.tokenType == SPACE {
-// 			result = append(result, literal)
-// 			literal = ""
-// 		}
-
-// 	}
-// 	if len(literal) > 0 {
-// 		result = append(result, literal)
-// 	}
-
-// 	return result
-// }
