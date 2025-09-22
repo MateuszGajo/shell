@@ -5,11 +5,15 @@ import (
 	"slices"
 )
 
-// Lets use recusrive descent parser
+// Lets use descent parser, ll(1)
 
 // Grammar
-// command -> String argument_list
-// argument_list -> String argument_list | ε
+// command -> String spaces argument_list redirection_list
+// argument_list -> String spaces argument_list | ε
+// redirection_list -> redirection spaces redirection_list | ε
+// redirection -> redirect_op spaces String
+// spaces -> SPACE | ε
+// redirect_op -> ">" | ">>" | "<" | "2>" | "&>" | "1>"
 
 type Lexar struct {
 	i     int
@@ -24,9 +28,11 @@ type Token struct {
 }
 
 const (
-	STRING = "STRRING"
-	SPACE  = "SPACE"
-	EOF    = "EOF"
+	STRING   = "STRRING"
+	SPACE    = "SPACE"
+	EOF      = "EOF"
+	EPSILON  = "EPSILON"
+	REDIRECT = "REDIRECT"
 )
 
 func NewToken(tokenType TokenType, literal string) Token {
@@ -43,6 +49,16 @@ func (p Lexar) peek() byte {
 	return p.input[p.i]
 }
 
+func (l Lexar) peekNext() byte {
+	newIndex := l.i
+	newIndex++
+	if l.indexEof(newIndex) {
+		return 0
+	}
+
+	return l.input[newIndex]
+}
+
 func (p *Lexar) next() byte {
 	p.i += 1
 	if p.eof() {
@@ -53,6 +69,10 @@ func (p *Lexar) next() byte {
 
 func (p Lexar) eof() bool {
 	return len(p.input) == p.i
+}
+
+func (p Lexar) indexEof(index int) bool {
+	return len(p.input) == index
 }
 
 func newLexar(input string) Lexar {
@@ -79,6 +99,18 @@ func (p *Lexar) nextToken() Token {
 		result := p.readDoubleQuote()
 		p.next()
 		token = NewToken(STRING, result)
+	case '1', '2':
+		if p.peekNext() != '>' {
+			result := p.readLiteral()
+			token = NewToken(STRING, result)
+			break
+		}
+		p.next()
+		p.next()
+		token = NewToken(REDIRECT, string(p.input[p.i-2:p.i]))
+	case '>':
+		p.next()
+		token = NewToken(REDIRECT, string(p.input[p.i-1:p.i]))
 	case 0:
 		token = NewToken(EOF, "")
 	default:
@@ -148,7 +180,6 @@ func (p *Lexar) readDoubleQuote() string {
 		char = p.next()
 
 	}
-	// res += string(char)
 	return res
 }
 
@@ -172,43 +203,85 @@ func NewParser(input string) Parser {
 func (p *Parser) nextToken() {
 	p.currentToken = p.peekToken
 
-	p.peekToken = p.lexar.nextToken()
+	var token Token
+	for {
+		token = p.lexar.nextToken()
+		if token.tokenType != EPSILON {
+			break
+		}
+	}
+	p.peekToken = token
 
 }
 
 type ParsedInput struct {
-	Command   Command
-	Arguments []string
+	Command     Command
+	Arguments   []string
+	Redirection []string
 }
 
+func (p *Parser) parseSpaces() {
+	if p.currentToken.tokenType == SPACE {
+		p.nextToken() // consume SPACE
+	}
+}
+
+// command -> String spaces argument_list redirection_list
 func (p *Parser) ParseCommand() (ParsedInput, error) {
-	//Grammar rule command -> String argument_list
 
 	if p.currentToken.tokenType != STRING {
 		return ParsedInput{}, fmt.Errorf("expect command, got: %s", p.currentToken.tokenType)
 	}
 
 	command := ParsedInput{
-		Command:   Command(p.currentToken.literal),
-		Arguments: []string{},
+		Command:     Command(p.currentToken.literal),
+		Arguments:   []string{},
+		Redirection: []string{},
 	}
 
 	p.nextToken()
-
-	p.nextToken()
+	p.parseSpaces()
 
 	command.Arguments = p.ParseArgumentList()
+	command.Redirection = p.parseRedirectionList()
 
 	return command, nil
 
 }
 
+// redirection_list -> redirection spaces redirection_list | ε
+// redirection -> redirect_op spaces String
+// spaces -> SPACE | ε
+// redirect_op -> ">" | ">>" | "<" | "2>" | "&>" | "1>"
+func (p *Parser) parseRedirectionList() []string {
+	var list []string
+
+	if p.currentToken.tokenType == EOF || p.currentToken.tokenType != REDIRECT {
+		return list
+	}
+
+	list = append(list, p.currentToken.literal)
+	p.nextToken()
+	p.parseSpaces()
+	if p.currentToken.tokenType != STRING {
+		return list
+	}
+	list = append(list, p.currentToken.literal)
+	p.nextToken()
+
+	moreRedirection := p.parseRedirectionList()
+	list = append(list, moreRedirection...)
+
+	return list
+
+}
+
+// argument_list -> String spaces argument_list | ε
 func (p *Parser) ParseArgumentList() []string {
-	// Grammar rule: argument_list -> STRING argument_list | ε
 
 	var args []string
 
-	if p.currentToken.tokenType == EOF {
+	if p.currentToken.tokenType == EOF || p.currentToken.tokenType == REDIRECT {
 		return args
 	}
 

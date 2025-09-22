@@ -14,8 +14,8 @@ func TestInvalidCommand(t *testing.T) {
 
 	var output bytes.Buffer
 	shell := Shell{
-		in:  input,
-		out: &output,
+		in:     input,
+		stdout: &output,
 	}
 
 	shell.startCli()
@@ -32,8 +32,8 @@ func TestValidCommand(t *testing.T) {
 
 	var output bytes.Buffer
 	shell := Shell{
-		in:  input,
-		out: &output,
+		in:     input,
+		stdout: &output,
 	}
 
 	shell.startCli()
@@ -51,8 +51,8 @@ func TestExitCommand(t *testing.T) {
 
 	var output bytes.Buffer
 	shell := Shell{
-		in:  input,
-		out: &output,
+		in:     input,
+		stdout: &output,
 	}
 
 	exitRequest, exitCode := shell.startCli()
@@ -76,8 +76,8 @@ func TestEchoCommand(t *testing.T) {
 
 	var output bytes.Buffer
 	shell := Shell{
-		in:  input,
-		out: &output,
+		in:     input,
+		stdout: &output,
 	}
 
 	shell.startCli()
@@ -129,8 +129,8 @@ func TestTypeCommand(t *testing.T) {
 
 			var output bytes.Buffer
 			shell := Shell{
-				in:  input,
-				out: &output,
+				in:     input,
+				stdout: &output,
 			}
 
 			shell.startCli()
@@ -156,7 +156,7 @@ func TestPwdCommand(t *testing.T) {
 	path, _ := os.Getwd()
 	shell := Shell{
 		in:        input,
-		out:       &output,
+		stdout:    &output,
 		directory: path,
 	}
 
@@ -180,7 +180,7 @@ func TestChangeDirectory(t *testing.T) {
 	path, _ := os.Getwd()
 	shell := Shell{
 		in:        input,
-		out:       &output,
+		stdout:    &output,
 		directory: path,
 	}
 
@@ -203,7 +203,7 @@ func TestEscape(t *testing.T) {
 	path, _ := os.Getwd()
 	shell := Shell{
 		in:        input,
-		out:       &output,
+		stdout:    &output,
 		directory: path,
 	}
 
@@ -226,7 +226,7 @@ func TestSingleQuoteWithEscape(t *testing.T) {
 	path, _ := os.Getwd()
 	shell := Shell{
 		in:        input,
-		out:       &output,
+		stdout:    &output,
 		directory: path,
 	}
 
@@ -249,7 +249,7 @@ func TestBackslashWithinDoubleQuotes(t *testing.T) {
 	path, _ := os.Getwd()
 	shell := Shell{
 		in:        input,
-		out:       &output,
+		stdout:    &output,
 		directory: path,
 	}
 
@@ -262,4 +262,77 @@ func TestBackslashWithinDoubleQuotes(t *testing.T) {
 	}
 
 	os.RemoveAll("tmp")
+}
+
+func TestRedirectOutput(t *testing.T) {
+
+	input := strings.NewReader("echo abcd > aa.txt")
+
+	var output bytes.Buffer
+	path, _ := os.Getwd()
+	shell := Shell{
+		in:        input,
+		stdout:    &output,
+		directory: path,
+	}
+
+	shell.startCli()
+	outputFile, err := os.ReadFile("aa.txt")
+	if err != nil {
+		t.Error(err)
+	}
+	cliOtput := getRawOutput(output.String())
+	fmt.Println("cliout", cliOtput)
+	got := string(outputFile)
+	expectedResult := "abcd"
+
+	if !strings.Contains(got, expectedResult) {
+		t.Errorf("expected to be %v, got: %v", expectedResult, got)
+	}
+
+	defer func() {
+		if file, ok := shell.stdout.(*os.File); ok {
+			file.Close()
+		}
+	}()
+}
+
+func TestRedirectOutput2(t *testing.T) {
+
+	os.Mkdir("/tmp/foo", 0755)
+	os.Mkdir("/tmp/bar", 0755)
+	os.Setenv("PATH", "/usr/bin")
+
+	os.WriteFile("/tmp/foo/apple", []byte("apple"), 0755)
+	os.WriteFile("/tmp/foo/blueberry", []byte("blueberry"), 0755)
+	os.WriteFile("/tmp/foo/mango", []byte("mango"), 0755)
+
+	input := strings.NewReader("ls -1 /tmp/foo > /tmp/bar/bar.md\n")
+
+	var output bytes.Buffer
+	path, _ := os.Getwd()
+	shell := Shell{
+		in:        input,
+		stdout:    &output,
+		directory: path,
+	}
+
+	shell.startCli()
+	outputFile, err := os.ReadFile("/tmp/bar/bar.md")
+	if err != nil {
+		t.Error(err)
+	}
+	cliOtput := getRawOutput(output.String())
+	fmt.Println("cliout", cliOtput)
+	got := string(outputFile)
+	expectedResult := "apple\nblueberry\nmango"
+
+	if !strings.Contains(got, expectedResult) {
+		t.Errorf("expected to be %v, got: %v", expectedResult, got)
+	}
+	defer func() {
+		if file, ok := shell.stdout.(*os.File); ok {
+			file.Close()
+		}
+	}()
 }

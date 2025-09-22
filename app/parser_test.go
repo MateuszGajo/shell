@@ -6,9 +6,10 @@ import (
 )
 
 type TestCase struct {
-	input         string
-	outputCommand string
-	outputArgs    []string
+	input          string
+	outputCommand  string
+	outputArgs     []string
+	outputRedirect []string
 }
 
 func TestParser(t *testing.T) {
@@ -29,6 +30,19 @@ func TestParser(t *testing.T) {
 			outputCommand: "echo",
 			outputArgs:    []string{"example     world", " ", "hello", "script", " ", "test", "", "shell"},
 		},
+
+		{
+			input:          "ls /tmp/baz > /tmp/foo/baz.md",
+			outputCommand:  "ls",
+			outputArgs:     []string{"/tmp/baz", " "},
+			outputRedirect: []string{">", "/tmp/foo/baz.md"},
+		},
+		{
+			input:          "echo 'Hello Maria' 1> /tmp/baz/foo.mdd",
+			outputCommand:  "echo",
+			outputArgs:     []string{"Hello Maria", " "},
+			outputRedirect: []string{"1>", "/tmp/baz/foo.mdd"},
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -47,27 +61,11 @@ func TestParser(t *testing.T) {
 			if !reflect.DeepEqual(testCase.outputArgs, ret.Arguments) {
 				t.Errorf("Expected to got: %#v, insted we have:%#v", testCase.outputArgs, ret.Arguments)
 			}
+			if testCase.outputRedirect != nil && !reflect.DeepEqual(testCase.outputRedirect, ret.Redirection) {
+				t.Errorf("Expected to got: %#v, insted we have:%#v", testCase.outputRedirect, ret.Redirection)
+
+			}
 		})
 	}
 
-	// args = "echo 'example     world' 'hello''script' test''shell"
-
-	// parser = NewParser(args)
-	// ret = parser.parseInput()
-	// expected := []string{"echo", "example     world", "helloscript", "testshell"}
-
-	// if !reflect.DeepEqual(ret, expected) {
-	// 	t.Errorf("Expected: %#v, got:  %#v", expected, ret)
-	// }
-
-	// args = "echo shell     world"
-
-	// parser = NewParser(args)
-	// ret = parser.parseInput()
-
-	// expected = []string{"echo", "shell", "world"}
-
-	// if !reflect.DeepEqual(ret, expected) {
-	// 	t.Errorf("Expected: %#v, got:  %#v", expected, ret)
-	// }
 }
