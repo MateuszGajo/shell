@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"io"
@@ -9,6 +8,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/chzyer/readline"
 )
 
 type Command string
@@ -51,7 +52,27 @@ func findFile(directories string, file string) (bool, string) {
 
 	}
 	return false, ""
+}
 
+func displayFilesFromDir(directories string) []string {
+	directoriesSplit := strings.Split(directories, ":")
+	allFiles := []string{}
+
+	for _, item := range directoriesSplit {
+		entries, err := os.ReadDir(item)
+
+		if err != nil {
+			continue
+		}
+
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				allFiles = append(allFiles, entry.Name())
+			}
+		}
+
+	}
+	return allFiles
 }
 
 func (shell *Shell) handleEchoCommand(args []string) (string, error) {
@@ -188,16 +209,26 @@ func (shell *Shell) redirect(args []string) (string, error) {
 
 	operator := args[0]
 
-	if operator != ">" && operator != "1>" && operator != "2>" {
+	if operator != ">" && operator != "1>" && operator != "2>" && operator != ">>" && operator != "1>>" && operator != "2>>" {
 		return "", fmt.Errorf("not supported redirection")
 	}
 
+	append := strings.Contains(operator, ">>")
+
 	outputFile := args[1]
-	file, err := os.Create(outputFile)
+	var file *os.File
+	var err error
+
+	if append {
+		file, err = os.OpenFile(outputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	} else {
+		file, err = os.Create(outputFile)
+	}
+
 	if err != nil {
 		return "", fmt.Errorf("%s", fmt.Sprintf("err creating file, err: %v", err))
 	}
-	if operator == "2>" {
+	if operator == "2>" || operator == "2>>" {
 		shell.stderr = file
 	} else {
 		shell.stdout = file
@@ -207,26 +238,34 @@ func (shell *Shell) redirect(args []string) (string, error) {
 }
 
 func (shell *Shell) startCli() (bool, int) {
-	scanner := bufio.NewScanner(shell.in)
 	stdout := shell.stdout
 	stderr := shell.stderr
+
+	l, err := readline.NewEx(&readline.Config{
+		Prompt:       "$ ",
+		Stdin:        io.NopCloser(shell.in),
+		AutoComplete: &AutoComplete{},
+	})
+	if err != nil {
+		return true, 0
+	}
 	for {
 		shell.stdout = stdout
 		shell.stderr = stderr
 		fmt.Fprint(os.Stdout, "$ ")
 
-		ok := scanner.Scan()
-		if !ok {
+		raw, err := l.Readline()
+		if err != nil {
 			return false, 0
 		}
-		text := scanner.Text()
 
-		parser := NewParser(text)
+		parser := NewParser(raw)
 		input, err := parser.ParseCommand()
 		if err != nil {
 			fmt.Println(err)
 			return true, 1
 		}
+
 		command := Command(input.Command)
 
 		if command == ExitCommand {

@@ -10,16 +10,19 @@ import (
 )
 
 func TestInvalidCommand(t *testing.T) {
-	input := strings.NewReader("aa\n")
+	input := strings.NewReader("aa\nexit\n")
 
 	var output bytes.Buffer
+	var errout bytes.Buffer
 	shell := Shell{
 		in:     input,
 		stdout: &output,
+		stderr: &errout,
 	}
 
 	shell.startCli()
-	got := output.String()
+	got := errout.String()
+	fmt.Println(output.String())
 	expectedResult := "aa: command not found"
 
 	if !strings.Contains(got, expectedResult) {
@@ -31,9 +34,11 @@ func TestValidCommand(t *testing.T) {
 	input := strings.NewReader("echo\n")
 
 	var output bytes.Buffer
+	var errout bytes.Buffer
 	shell := Shell{
 		in:     input,
 		stdout: &output,
+		stderr: &errout,
 	}
 
 	shell.startCli()
@@ -50,9 +55,11 @@ func TestExitCommand(t *testing.T) {
 	input := strings.NewReader("exit 0\n")
 
 	var output bytes.Buffer
+	var errout bytes.Buffer
 	shell := Shell{
 		in:     input,
 		stdout: &output,
+		stderr: &errout,
 	}
 
 	exitRequest, exitCode := shell.startCli()
@@ -75,9 +82,11 @@ func TestEchoCommand(t *testing.T) {
 	input := strings.NewReader("echo abc def\n")
 
 	var output bytes.Buffer
+	var errout bytes.Buffer
 	shell := Shell{
 		in:     input,
 		stdout: &output,
+		stderr: &errout,
 	}
 
 	shell.startCli()
@@ -93,6 +102,7 @@ type Case struct {
 	input  string
 	output string
 	name   string
+	err    string
 	setup  func() string
 	clear  func()
 }
@@ -100,7 +110,7 @@ type Case struct {
 func TestTypeCommand(t *testing.T) {
 	cases := []Case{
 		{input: "type echo", output: "echo is a shell builtin", name: "valid command type echo"},
-		{input: "type abc", output: "abc: not found", name: "invalid command type abc"},
+		{input: "type abc", err: "abc: not found", output: "", name: "invalid command type abc"},
 		{input: "type script", output: "script is /tmp/123/test2/script", name: "valid not builtin command",
 			setup: func() string {
 				os.Mkdir("/tmp/123", 0755)
@@ -128,16 +138,23 @@ func TestTypeCommand(t *testing.T) {
 			input := strings.NewReader(testCase.input + "\n")
 
 			var output bytes.Buffer
+			var errout bytes.Buffer
 			shell := Shell{
 				in:     input,
 				stdout: &output,
+				stderr: &errout,
 			}
 
 			shell.startCli()
 			got := getRawOutput(output.String())
+			expected := testCase.output
+			if testCase.output == "" {
+				got = getRawOutput(errout.String())
+				expected = testCase.err
+			}
 
-			if got != testCase.output {
-				t.Errorf("Expected result to be %q, got: %q", testCase.output, got)
+			if got != expected {
+				t.Errorf("Expected result to be %q, got: %q", expected, got)
 			}
 
 			if testCase.clear != nil {
@@ -310,10 +327,12 @@ func TestRedirectOutput2(t *testing.T) {
 	input := strings.NewReader("ls -1 /tmp/foo > /tmp/bar/bar.md\n")
 
 	var output bytes.Buffer
+	var errout bytes.Buffer
 	path, _ := os.Getwd()
 	shell := Shell{
 		in:        input,
 		stdout:    &output,
+		stderr:    &errout,
 		directory: path,
 	}
 

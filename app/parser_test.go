@@ -43,6 +43,18 @@ func TestParser(t *testing.T) {
 			outputArgs:     []string{"Hello Maria", " "},
 			outputRedirect: []string{"1>", "/tmp/baz/foo.mdd"},
 		},
+		{
+			input:          "echo 'Hello Maria' >> /tmp/baz/foo.mdd",
+			outputCommand:  "echo",
+			outputArgs:     []string{"Hello Maria", " "},
+			outputRedirect: []string{">>", "/tmp/baz/foo.mdd"},
+		},
+		{
+			input:          "echo 'Hello Maria' 1>> /tmp/baz/foo.mdd",
+			outputCommand:  "echo",
+			outputArgs:     []string{"Hello Maria", " "},
+			outputRedirect: []string{"1>>", "/tmp/baz/foo.mdd"},
+		},
 	}
 
 	for _, testCase := range testCases {

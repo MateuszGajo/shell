@@ -100,17 +100,23 @@ func (p *Lexar) nextToken() Token {
 		p.next()
 		token = NewToken(STRING, result)
 	case '1', '2':
+		start := p.i
 		if p.peekNext() != '>' {
 			result := p.readLiteral()
 			token = NewToken(STRING, result)
 			break
 		}
 		p.next()
-		p.next()
-		token = NewToken(REDIRECT, string(p.input[p.i-2:p.i]))
+		if p.next() == '>' {
+			p.next()
+		}
+		token = NewToken(REDIRECT, string(p.input[start:p.i]))
 	case '>':
-		p.next()
-		token = NewToken(REDIRECT, string(p.input[p.i-1:p.i]))
+		start := p.i
+		if p.next() == '>' {
+			p.next()
+		}
+		token = NewToken(REDIRECT, string(p.input[start:p.i]))
 	case 0:
 		token = NewToken(EOF, "")
 	default:
