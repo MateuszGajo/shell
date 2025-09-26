@@ -5,10 +5,11 @@ import (
 	"slices"
 )
 
-// Lets use descent parser, ll(1)
+// Lets use recusrive descent parser, ll(1)
 
 // Grammar
-// command -> String spaces argument_list redirection_list
+// pipe -> command | ε
+// command -> String spaces argument_list redirection_list command
 // argument_list -> String spaces argument_list | ε
 // redirection_list -> redirection spaces redirection_list | ε
 // redirection -> redirect_op spaces String
@@ -33,6 +34,7 @@ const (
 	EOF      = "EOF"
 	EPSILON  = "EPSILON"
 	REDIRECT = "REDIRECT"
+	PIPE     = "PIPE"
 )
 
 func NewToken(tokenType TokenType, literal string) Token {
@@ -99,6 +101,10 @@ func (p *Lexar) nextToken() Token {
 		result := p.readDoubleQuote()
 		p.next()
 		token = NewToken(STRING, result)
+	case '|':
+		p.next()
+		token = NewToken(PIPE, "")
+
 	case '1', '2':
 		start := p.i
 		if p.peekNext() != '>' {
@@ -224,6 +230,13 @@ type ParsedInput struct {
 	Command     Command
 	Arguments   []string
 	Redirection []string
+	pipe        []ParsedCommand
+}
+
+type ParsedCommand struct {
+	Command     Command
+	Arguments   []string
+	Redirection []string
 }
 
 func (p *Parser) parseSpaces() {
@@ -232,14 +245,38 @@ func (p *Parser) parseSpaces() {
 	}
 }
 
-// command -> String spaces argument_list redirection_list
-func (p *Parser) ParseCommand() (ParsedInput, error) {
+func (p *Parser) parsePipe() (ParsedInput, error) {
 
-	if p.currentToken.tokenType != STRING {
-		return ParsedInput{}, fmt.Errorf("expect command, got: %s", p.currentToken.tokenType)
+	command, err := p.ParseCommand()
+	if err != nil {
+		return ParsedInput{}, err
+	}
+	if len(command) == 0 {
+		return ParsedInput{}, fmt.Errorf("parsed 0 commands")
+	}
+	parsedInput := ParsedInput{
+		Command:     command[0].Command,
+		Arguments:   command[0].Arguments,
+		Redirection: command[0].Redirection,
+		pipe:        command[1:],
 	}
 
-	command := ParsedInput{
+	return parsedInput, nil
+}
+
+// command -> String spaces argument_list redirection_list
+func (p *Parser) ParseCommand() ([]ParsedCommand, error) {
+	var list []ParsedCommand
+
+	if p.currentToken.tokenType == EOF {
+		return list, nil
+	}
+
+	if p.currentToken.tokenType != STRING {
+		return nil, fmt.Errorf("expect command, got: %s", p.currentToken.tokenType)
+	}
+
+	command := ParsedCommand{
 		Command:     Command(p.currentToken.literal),
 		Arguments:   []string{},
 		Redirection: []string{},
@@ -250,8 +287,22 @@ func (p *Parser) ParseCommand() (ParsedInput, error) {
 
 	command.Arguments = p.ParseArgumentList()
 	command.Redirection = p.parseRedirectionList()
+	list = append(list, command)
 
-	return command, nil
+	if p.currentToken.tokenType == EOF {
+		return list, nil
+	}
+
+	p.nextToken()
+	p.nextToken()
+
+	moreRedirection, err := p.ParseCommand()
+	if err != nil {
+		return nil, err
+	}
+	list = append(list, moreRedirection...)
+
+	return list, nil
 
 }
 
@@ -262,7 +313,7 @@ func (p *Parser) ParseCommand() (ParsedInput, error) {
 func (p *Parser) parseRedirectionList() []string {
 	var list []string
 
-	if p.currentToken.tokenType == EOF || p.currentToken.tokenType != REDIRECT {
+	if p.currentToken.tokenType == EOF || p.currentToken.tokenType != REDIRECT || p.currentToken.tokenType == PIPE {
 		return list
 	}
 
@@ -287,7 +338,7 @@ func (p *Parser) ParseArgumentList() []string {
 
 	var args []string
 
-	if p.currentToken.tokenType == EOF || p.currentToken.tokenType == REDIRECT {
+	if p.currentToken.tokenType == EOF || p.currentToken.tokenType == REDIRECT || p.currentToken.tokenType == PIPE {
 		return args
 	}
 

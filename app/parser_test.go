@@ -10,6 +10,14 @@ type TestCase struct {
 	outputCommand  string
 	outputArgs     []string
 	outputRedirect []string
+	pipe           *TestCaseData
+}
+
+type TestCaseData struct {
+	input          string
+	outputCommand  string
+	outputArgs     []string
+	outputRedirect []string
 }
 
 func TestParser(t *testing.T) {
@@ -55,12 +63,30 @@ func TestParser(t *testing.T) {
 			outputArgs:     []string{"Hello Maria", " "},
 			outputRedirect: []string{"1>>", "/tmp/baz/foo.mdd"},
 		},
+		{
+			input:         "cat /tmp/bar/file-37 | wc",
+			outputCommand: "cat",
+			outputArgs:    []string{"/tmp/bar/file-37", " "},
+			pipe: &TestCaseData{
+				outputCommand: "wc",
+				outputArgs:    nil,
+			},
+		},
+		{
+			input:         "tail -f /tmp/quz/file-19 | head -n 5",
+			outputCommand: "tail",
+			outputArgs:    []string{"-f", " ", "/tmp/quz/file-19", " "},
+			pipe: &TestCaseData{
+				outputCommand: "head",
+				outputArgs:    []string{"-n", " ", "5"},
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run("Running input"+testCase.input, func(t *testing.T) {
 			parser := NewParser(testCase.input)
-			ret, err := parser.ParseCommand()
+			ret, err := parser.parsePipe()
 
 			if err != nil {
 				t.Error(err)
@@ -76,6 +102,16 @@ func TestParser(t *testing.T) {
 			if testCase.outputRedirect != nil && !reflect.DeepEqual(testCase.outputRedirect, ret.Redirection) {
 				t.Errorf("Expected to got: %#v, insted we have:%#v", testCase.outputRedirect, ret.Redirection)
 
+			}
+
+			if testCase.pipe != nil {
+				if testCase.pipe.outputCommand != string(ret.pipe[0].Command) {
+					t.Errorf("Expected pipe command to be %v, got: %v", testCase.pipe.outputCommand, string(ret.pipe[0].Command))
+				}
+
+				if !reflect.DeepEqual(testCase.pipe.outputArgs, ret.pipe[0].Arguments) {
+					t.Errorf("Expected to got: %#v, insted we have:%#v", testCase.pipe.outputArgs, ret.pipe[0].Arguments)
+				}
 			}
 		})
 	}

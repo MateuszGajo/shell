@@ -12,7 +12,7 @@ type AutoComplete struct {
 	lastPrefix string
 }
 
-func commonPrefix(args []string, selected string) string {
+func findCommonPrefix(args []string) string {
 	if len(args) < 2 {
 		return ""
 	}
@@ -28,14 +28,29 @@ func commonPrefix(args []string, selected string) string {
 	return prefix
 }
 
-func (a *AutoComplete) Do(line []rune, pos int) ([][]rune, int) {
-	selected := line[:pos]
-	suffix := ""
-	endPos := pos
-
+func getMatchAutocompletion(autocompleteData []string, selected string) ([]string, []string) {
 	var suffixAutocompletion []string
 	autocompletion := []string{}
+mainLoop:
+	for _, item := range autocompleteData {
+		i := 0
+		for i = 0; i < len(selected) && len(item) > i; i++ {
+			if selected[i] != item[i] {
+				continue mainLoop
+			}
 
+		}
+		if i == len(item) {
+			continue
+		}
+		suffix := string(item[i:] + " ")
+		suffixAutocompletion = append(suffixAutocompletion, suffix)
+		autocompletion = append(autocompletion, item+" ")
+	}
+	return autocompletion, suffixAutocompletion
+}
+
+func getAutcompleteData() []string {
 	autocompleteData := []string{}
 
 	for _, item := range builtinCommands {
@@ -59,59 +74,43 @@ func (a *AutoComplete) Do(line []rune, pos int) ([][]rune, int) {
 	autocompleteData = filtered
 	sort.Strings(autocompleteData)
 
-mainLoop:
-	for _, item := range autocompleteData {
-		i := 0
-		for i = 0; i < len(selected) && len(item) > i; i++ {
-			if selected[i] != rune(item[i]) {
-				continue mainLoop
-			}
+	return autocompleteData
+}
 
-		}
-		if i == len(item) {
-			continue
-		}
-		suffix = string(item[i:] + " ")
-		suffixAutocompletion = append(suffixAutocompletion, suffix)
-		autocompletion = append(autocompletion, item+" ")
-		endPos += len(suffix)
+func (a *AutoComplete) Do(line []rune, pos int) ([][]rune, int) {
+	prefix := string(line[:pos])
+
+	if a.lastPrefix == prefix {
+		a.tabCount++
+	} else {
+		a.lastPrefix = prefix
+		a.tabCount = 1
 	}
 
-	common := commonPrefix(suffixAutocompletion, string(selected))
-	if common != "" {
-		suffixAutocompletion = []string{common}
+	autoCompleteInput := getAutcompleteData()
+	autoCompleteData, autoCompleteSuffixesData := getMatchAutocompletion(autoCompleteInput, prefix)
+	commonPrefix := findCommonPrefix(autoCompleteData)
+	if commonPrefix != "" && commonPrefix != prefix {
+		return [][]rune{[]rune(commonPrefix[len(prefix):])}, pos + (len(commonPrefix) - len(prefix))
 	}
 
-	res := [][]rune{}
-
-	for _, item := range suffixAutocompletion {
-		res = append(res, []rune(item))
+	if len(autoCompleteSuffixesData) == 0 {
+		return [][]rune{[]rune("\x07")}, 1
 	}
 
-	if len(res) == 0 {
-		return [][]rune{[]rune("\x07")}, endPos
+	if len(autoCompleteSuffixesData) == 1 {
+		return [][]rune{[]rune(autoCompleteSuffixesData[0])}, pos + len([]rune(autoCompleteSuffixesData[0]))
 	}
 
-	if len(res) > 1 {
-
-		if a.lastPrefix == string(selected) {
-			a.tabCount++
-		} else {
-			a.lastPrefix = string(selected)
-			a.tabCount = 1
-		}
-
-		if a.tabCount == 1 {
-			fmt.Fprint(os.Stderr, "\a")
-			return nil, 1
-		} else if a.tabCount == 2 {
-			fmt.Println()
-
-			fmt.Println(strings.Join(autocompletion, " "))
-			fmt.Printf("$ %s", string(line))
-			return nil, 0
-		}
+	switch a.tabCount {
+	case 0, 1:
+		fmt.Fprint(os.Stderr, "\a")
+		return nil, 1
+	default:
+		fmt.Println()
+		fmt.Println(strings.Join(autoCompleteData, " "))
+		fmt.Printf("$ %s", string(line))
+		a.tabCount = 0
+		return nil, 0
 	}
-
-	return res, endPos
 }
