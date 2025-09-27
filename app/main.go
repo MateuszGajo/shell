@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io"
@@ -107,60 +108,105 @@ func (shell *Shell) handleExternalCommand(command Command, args []string) (*exec
 	return cmd, nil
 }
 
-// func normalFUnction(input string) string {
-// 	return input
-// }
+func (shell *Shell) pipelineFunctionWrapper(r *os.File, w *os.File, args []string, fn func(shell *Shell, args []string) (string, error)) {
+	go func() {
+		scanner := bufio.NewScanner(r)
+		for {
+			ok := scanner.Scan()
+			if !ok {
+				break
+			}
+			err := scanner.Err()
+			if err != nil {
+				panic(err)
+			}
 
-// func pipelineFunctionWrapper(r *os.File, w *os.File, fn func(input string) string) {
-// 	// buffer := make([]byte, 1024)
-// 	scanner := bufio.NewScanner(r)
-// 	for {
-// 		ok := scanner.Scan()
-// 		if !ok {
-// 			break
-// 		}
-// 		scanner.Err()
-// 		input := scanner.Text()
-// 		output := fn(input)
-// 		w.Write([]byte(output))
-// 	}
-// }
+			output, err := fn(shell, args)
+			if err != nil {
+				panic("err")
+			}
+			fmt.Println("write output", output)
+			w.Write([]byte(output))
+		}
+	}()
 
-// 1. We need to create as many pipes as we have command
-// 2. if cmd we simple command to os.exec package
-// 3. for standard function we need to create a wraper that will read from io.Reader and write to io.Writer
-// func (shell *Shell) pipeline(input string) {
+}
 
-// 	r1, w1, err := os.Pipe()
+type Pipes struct {
+	write *os.File
+	read  *os.File
+}
 
-// 	if err != nil {
-// 		panic("Fdsfs")
-// 	}
+func (shell *Shell) pipeline(commands []ParsedCommand) error {
+	var rPrev *os.File
 
-// 	cmd := exec.Command("command", "args")
-// 	cmd.Stdin = shell.in
+	var cmds []*exec.Cmd
 
-// 	cmd.Stdout = w1
+	pipesIO := []Pipes{}
 
-// 	r2, w2, err := os.Pipe()
+	for i := 0; i < len(commands)-1; i++ {
+		r, w, err := os.Pipe()
 
-// 	if err != nil {
-// 		panic("Fdsfs")
-// 	}
+		if err != nil {
+			panic(err)
+		}
+		pipesIO = append(pipesIO, Pipes{write: w, read: rPrev})
 
-// 	pipelineFunctionWrapper(r1, w2, normalFUnction)
+		rPrev = r
+	}
 
-// 	r3, w3, err := os.Pipe()
+	var writerStdOut io.Writer = shell.stdout
 
-// 	cmd2 := exec.Command("command", "Fdsf")
+	stdOutFile, ok := writerStdOut.(*os.File)
+	if !ok {
+		return fmt.Errorf("couldnt convert shell stdout to file")
+	}
+	pipesIO = append(pipesIO, Pipes{write: stdOutFile, read: rPrev})
 
-// 	cmd2.Stdin = r2
+	for index, comamnd := range commands {
+		handlerFunc := shell.getHandleCommandRaw(comamnd.Command)
+		args := filterParams(comamnd.Arguments)
 
-// 	cmd2.Stdout = w3
+		if handlerFunc.SimpleHandler != nil {
+			shell.pipelineFunctionWrapper(pipesIO[index].read, pipesIO[index].write, args, handlerFunc.SimpleHandler)
+		} else if handlerFunc.CommandHandler != nil {
+			exec, err := handlerFunc.CommandHandler(shell, comamnd.Command, args)
+			if err != nil {
+				return fmt.Errorf("eror while getting cmd setup, %v", err)
+			}
+			if index > 0 {
 
-// 	shell.stdout = r3
+				exec.Stdin = pipesIO[index].read
+			}
+			exec.Stdout = pipesIO[index].write
+			exec.Stderr = shell.stderr
 
-// }
+			err = exec.Start()
+
+			if err != nil {
+				return fmt.Errorf("eror while starting cmd, %v", err)
+			}
+			cmds = append(cmds, exec)
+		}
+
+	}
+
+	for i := 0; i < len(pipesIO)-1; i++ {
+		pipesIO[i].write.Close()
+	}
+	for _, cmd := range cmds {
+		if err := cmd.Wait(); err != nil {
+			return err
+		}
+	}
+
+	for _, r := range pipesIO {
+		r.read.Close()
+	}
+
+	return nil
+
+}
 
 func (shell Shell) handlePwdCommand(args []string) (string, error) {
 	return shell.directory, nil
@@ -245,20 +291,26 @@ func (shell *Shell) getHandleCommandRaw(command Command) CommandSpecResponse {
 	}
 }
 
-func (shell *Shell) handleCommand(command Command, rawArgs []string) (string, error) {
+func (shell *Shell) filterArgs(command Command, args []string) []string {
 	if spec, ok := commands[command]; !(ok && spec.NeedsRawArgs) {
-		rawArgs = filterParams(rawArgs)
+		args = filterParams(args)
 
 	}
-	handlerFunc := shell.getHandleCommandRaw(command)
 
+	return args
+}
+
+func (shell *Shell) handleCommand(command Command, rawArgs []string) (string, error) {
+
+	handlerFunc := shell.getHandleCommandRaw(command)
+	args := shell.filterArgs(command, rawArgs)
 	if handlerFunc.SimpleHandler != nil {
-		return handlerFunc.SimpleHandler(shell, rawArgs)
+		return handlerFunc.SimpleHandler(shell, args)
 	} else if handlerFunc.CommandHandler == nil {
 		panic("Never should happend that command handler is nill when simpler handler inill too")
 	}
 
-	cmd, err := handlerFunc.CommandHandler(shell, command, rawArgs)
+	cmd, err := handlerFunc.CommandHandler(shell, command, args)
 
 	if err != nil {
 		return "", err
@@ -269,8 +321,6 @@ func (shell *Shell) handleCommand(command Command, rawArgs []string) (string, er
 
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	// cmd.StdoutPipe()
-	// cmd.Stdin = shell.in
 	err = cmd.Run()
 	clean := bytes.Trim(stdout.Bytes(), "\x00")
 	output := string(clean)
@@ -329,7 +379,7 @@ func (shell *Shell) redirect(args []string) (string, error) {
 func (shell *Shell) startCli() (bool, int) {
 	stdout := shell.stdout
 	stderr := shell.stderr
-	// stdin := shell.in
+	stdin := shell.in
 
 	l, err := readline.NewEx(&readline.Config{
 		Prompt:       "$ ",
@@ -342,7 +392,7 @@ func (shell *Shell) startCli() (bool, int) {
 	for {
 		shell.stdout = stdout
 		shell.stderr = stderr
-		// shell.in = stdin
+		shell.in = stdin
 		fmt.Fprint(os.Stdout, "$ ")
 
 		raw, err := l.Readline()
@@ -351,11 +401,21 @@ func (shell *Shell) startCli() (bool, int) {
 		}
 
 		parser := NewParser(raw)
-		input, err := parser.parsePipe()
+		commands, err := parser.parsePipe()
 		if err != nil {
 			fmt.Println(err)
 			return true, 1
 		}
+		if len(commands) > 1 {
+			shell.pipeline(commands)
+
+			continue
+		}
+		if len(commands) == 0 {
+			fmt.Fprintf(shell.stdout, "No command to do")
+			return true, 1
+		}
+		input := commands[0]
 
 		command := Command(input.Command)
 
@@ -380,30 +440,6 @@ func (shell *Shell) startCli() (bool, int) {
 		}
 
 		output, err := shell.handleCommand(input.Command, input.Arguments)
-		// if err != nil {
-		// 	fmt.Fprintln(shell.stderr, err)
-		// 	continue
-		// }
-
-		// for _, item := range input.pipe {
-		// 	// if item.Command == "head" {
-		// 	// 	fmt.Println("hello 1?")
-		// 	// }
-		// 	shell.in = strings.NewReader(output)
-		// 	_, err = shell.redirect(item.Redirection)
-		// 	// if item.Command == "head" {
-		// 	// 	fmt.Println("hello 2?")
-		// 	// }
-		// 	if err != nil {
-		// 		fmt.Fprintln(shell.stderr, err)
-		// 	}
-
-		// 	output, err = shell.handleCommand(item.Command, item.Arguments)
-
-		// 	// if item.Command == "head" {
-		// 	// 	fmt.Println("hello 3?")
-		// 	// }
-		// }
 
 		if err != nil {
 			fmt.Fprintln(shell.stderr, err)

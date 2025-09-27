@@ -226,13 +226,6 @@ func (p *Parser) nextToken() {
 
 }
 
-type ParsedInput struct {
-	Command     Command
-	Arguments   []string
-	Redirection []string
-	pipe        []ParsedCommand
-}
-
 type ParsedCommand struct {
 	Command     Command
 	Arguments   []string
@@ -245,23 +238,17 @@ func (p *Parser) parseSpaces() {
 	}
 }
 
-func (p *Parser) parsePipe() (ParsedInput, error) {
+func (p *Parser) parsePipe() ([]ParsedCommand, error) {
 
-	command, err := p.ParseCommand()
+	commands, err := p.ParseCommand()
 	if err != nil {
-		return ParsedInput{}, err
+		return nil, err
 	}
-	if len(command) == 0 {
-		return ParsedInput{}, fmt.Errorf("parsed 0 commands")
-	}
-	parsedInput := ParsedInput{
-		Command:     command[0].Command,
-		Arguments:   command[0].Arguments,
-		Redirection: command[0].Redirection,
-		pipe:        command[1:],
+	if len(commands) == 0 {
+		return nil, fmt.Errorf("parsed 0 commands")
 	}
 
-	return parsedInput, nil
+	return commands, nil
 }
 
 // command -> String spaces argument_list redirection_list
