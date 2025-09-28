@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"io"
@@ -110,26 +109,13 @@ func (shell *Shell) handleExternalCommand(command Command, args []string) (*exec
 
 func (shell *Shell) pipelineFunctionWrapper(r *os.File, w *os.File, args []string, fn func(shell *Shell, args []string) (string, error)) {
 	go func() {
-		scanner := bufio.NewScanner(r)
-		for {
-			ok := scanner.Scan()
-			if !ok {
-				break
-			}
-			err := scanner.Err()
-			if err != nil {
-				panic(err)
-			}
+		output, err := fn(shell, args)
+		w.Write([]byte(output + "\n"))
 
-			output, err := fn(shell, args)
-			if err != nil {
-				panic("err")
-			}
-			fmt.Println("write output", output)
-			w.Write([]byte(output))
+		if err != nil {
+			panic("err")
 		}
 	}()
-
 }
 
 type Pipes struct {
