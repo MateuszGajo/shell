@@ -15,20 +15,22 @@ import (
 type Command string
 
 const (
-	EchoCommand Command = "echo"
-	ExitCommand Command = "exit"
-	TypeCommand Command = "type"
-	PwdCommand  Command = "pwd"
-	CdCommand   Command = "cd"
+	EchoCommand    Command = "echo"
+	ExitCommand    Command = "exit"
+	TypeCommand    Command = "type"
+	PwdCommand     Command = "pwd"
+	CdCommand      Command = "cd"
+	HistoryCommand Command = "history"
 )
 
-var builtinCommands = []Command{EchoCommand, ExitCommand, TypeCommand, PwdCommand, CdCommand}
+var builtinCommands = []Command{EchoCommand, ExitCommand, TypeCommand, PwdCommand, CdCommand, HistoryCommand}
 
 type Shell struct {
 	in        io.Reader
 	stdout    io.Writer
 	stderr    io.Writer
 	directory string
+	history   []string
 }
 
 func isBuiltinCommand(command Command) bool {
@@ -107,7 +109,7 @@ func (shell *Shell) handleExternalCommand(command Command, args []string) (*exec
 	return cmd, nil
 }
 
-func (shell *Shell) pipelineFunctionWrapper(r *os.File, w *os.File, args []string, fn func(shell *Shell, args []string) (string, error)) {
+func (shell *Shell) syncFunctionWrapper(r *os.File, w *os.File, args []string, fn func(shell *Shell, args []string) (string, error)) {
 	go func() {
 		output, err := fn(shell, args)
 		w.Write([]byte(output + "\n"))
@@ -154,7 +156,7 @@ func (shell *Shell) pipeline(commands []ParsedCommand) error {
 		args := filterParams(comamnd.Arguments)
 
 		if handlerFunc.SimpleHandler != nil {
-			shell.pipelineFunctionWrapper(pipesIO[index].read, pipesIO[index].write, args, handlerFunc.SimpleHandler)
+			shell.syncFunctionWrapper(pipesIO[index].read, pipesIO[index].write, args, handlerFunc.SimpleHandler)
 		} else if handlerFunc.CommandHandler != nil {
 			exec, err := handlerFunc.CommandHandler(shell, comamnd.Command, args)
 			if err != nil {
@@ -233,6 +235,15 @@ func (shell *Shell) handleCdCommand(args []string) (string, error) {
 	return "", nil
 }
 
+func (shell Shell) handleHistoryCommand(args []string) (string, error) {
+	output := ""
+
+	for i := 0; i < len(shell.history); i++ {
+		output += fmt.Sprintf("%d %v\n", i, shell.history[i])
+	}
+	return strings.TrimRight(output, "\n"), nil
+}
+
 func filterParams(args []string) []string {
 	newArgs := []string{}
 	for _, item := range args {
@@ -256,10 +267,11 @@ type CommandSpecResponse struct {
 }
 
 var commands = map[Command]CommandSpec{
-	EchoCommand: {EchoCommand, true, (*Shell).handleEchoCommand},
-	TypeCommand: {TypeCommand, false, (*Shell).handleTypeCommand},
-	PwdCommand:  {PwdCommand, false, (*Shell).handlePwdCommand},
-	CdCommand:   {CdCommand, false, (*Shell).handleCdCommand},
+	EchoCommand:    {EchoCommand, true, (*Shell).handleEchoCommand},
+	TypeCommand:    {TypeCommand, false, (*Shell).handleTypeCommand},
+	PwdCommand:     {PwdCommand, false, (*Shell).handlePwdCommand},
+	CdCommand:      {CdCommand, false, (*Shell).handleCdCommand},
+	HistoryCommand: {CdCommand, false, (*Shell).handleHistoryCommand},
 }
 
 func (shell *Shell) getHandleCommandRaw(command Command) CommandSpecResponse {
@@ -385,6 +397,8 @@ func (shell *Shell) startCli() (bool, int) {
 		if err != nil {
 			return false, 0
 		}
+
+		shell.history = append(shell.history, raw)
 
 		parser := NewParser(raw)
 		commands, err := parser.parsePipe()
