@@ -1,2 +1,9 @@
-abcd 
-$ 
+echo aa
+echo bb
+history -w aa.txtecho nowyecho
+echo fgdsfsd
+history -a aa.txt
+echo nowyecho
+echo fgdsfsd
+history -a aa.txt
+history -a aa.txt

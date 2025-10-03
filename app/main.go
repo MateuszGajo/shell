@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io"
@@ -26,11 +27,12 @@ const (
 var builtinCommands = []Command{EchoCommand, ExitCommand, TypeCommand, PwdCommand, CdCommand, HistoryCommand}
 
 type Shell struct {
-	in        io.Reader
-	stdout    io.Writer
-	stderr    io.Writer
-	directory string
-	history   []string
+	in                  io.Reader
+	stdout              io.Writer
+	stderr              io.Writer
+	directory           string
+	history             []string
+	historyWrittenIndex int
 }
 
 func isBuiltinCommand(command Command) bool {
@@ -235,10 +237,89 @@ func (shell *Shell) handleCdCommand(args []string) (string, error) {
 	return "", nil
 }
 
-func (shell Shell) handleHistoryCommand(args []string) (string, error) {
+func readFile(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	bufio := bufio.NewScanner(file)
+	output := []string{}
+	for {
+		ok := bufio.Scan()
+		if !ok {
+			break
+		}
+		line := bufio.Text()
+		output = append(output, line)
+	}
+
+	return output, nil
+}
+
+func WriteToFile(path string, data []string) error {
+	dataToWrite := strings.Join(data, "\n") + "\n"
+	err := os.WriteFile(path, []byte(dataToWrite), 0655)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func appendToFile(path string, data []string) error {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+
+	defer f.Close()
+
+	if _, err := f.WriteString(strings.Join(data, "\n") + "\n"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (shell *Shell) handleHistoryCommand(args []string) (string, error) {
+	limit := len(shell.history)
+	if len(args) > 0 {
+		switch args[0] {
+		case "-r":
+			filepath := args[1]
+			data, err := readFile(filepath)
+			if err != nil {
+				return "", err
+			}
+			shell.history = append(shell.history, data...)
+			return "", nil
+		case "-w":
+			filepath := args[1]
+			err := WriteToFile(filepath, shell.history)
+			if err != nil {
+				return "", err
+			}
+			return "", nil
+		case "-a":
+			filepath := args[1]
+			err := appendToFile(filepath, shell.history[shell.historyWrittenIndex:])
+			shell.historyWrittenIndex = len(shell.history)
+			if err != nil {
+				return "", err
+			}
+			return "", nil
+		default:
+			num, err := strconv.Atoi(args[0])
+
+			if err != nil {
+				return "", err
+			}
+
+			limit = num
+		}
+	}
 	output := ""
 
-	for i := 0; i < len(shell.history); i++ {
+	for i := len(shell.history) - limit; i < len(shell.history); i++ {
 		output += fmt.Sprintf("%d %v\n", i, shell.history[i])
 	}
 	return strings.TrimRight(output, "\n"), nil
@@ -461,10 +542,21 @@ func main() {
 	}
 
 	shell := Shell{
-		in:        os.Stdin,
-		stdout:    os.Stdout,
-		stderr:    os.Stdout,
-		directory: directory,
+		in:                  os.Stdin,
+		stdout:              os.Stdout,
+		stderr:              os.Stdout,
+		directory:           directory,
+		historyWrittenIndex: 0,
+	}
+
+	histFile := os.Getenv("HISTFILE")
+	if histFile != "" {
+		data, err := readFile(histFile)
+		if err != nil {
+			os.Exit(1)
+		}
+
+		shell.history = data
 	}
 
 	defer func() {
@@ -476,6 +568,14 @@ func main() {
 	exitRequest, exitCode := shell.startCli()
 
 	if exitRequest {
+		if histFile != "" {
+			err := WriteToFile(histFile, shell.history)
+
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+		}
 		os.Exit(exitCode)
 	}
 }
